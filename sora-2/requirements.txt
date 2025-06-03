@@ -1,0 +1,6 @@
+opencv-python
+numpy
+openai
+python-dotenv
+requests
+ipython
