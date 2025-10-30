@@ -1,6 +1,7 @@
-opencv-python
-numpy
-openai
-python-dotenv
 requests
+python-dotenv
+azure-identity>=1.17.0
+openai
+numpy
 ipython
+opencv-python
