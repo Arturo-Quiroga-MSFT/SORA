@@ -1,0 +1,16 @@
+# Azure OpenAI and SORA 2 Video Generation Requirements
+
+# Core dependencies
+openai>=1.0.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# Image processing
+Pillow>=10.0.0
+
+# Jupyter notebook support
+ipython>=8.0.0
+jupyter>=1.0.0
+
+# Optional: Azure authentication (if using Entra ID instead of API keys)
+azure-identity>=1.15.0
