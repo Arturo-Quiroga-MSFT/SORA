@@ -1,5 +1,11 @@
 # SORA: Video Generation with Azure OpenAI SORA 2
 
+## About
+
+**Author**: Arturo Quiroga  
+**Role**: Cloud Solution Architect - Data & AI at Microsoft  
+**GitHub**: [@Arturo-Quiroga-MSFT](https://github.com/Arturo-Quiroga-MSFT)
+
 This repository demonstrates video generation capabilities using Azure OpenAI's SORA 2 model, including text-to-video, image-to-video, and video-to-video transformations. The project features a comprehensive Jupyter notebook that showcases all three generation methods with AI-powered automation.
 
 ## Features
