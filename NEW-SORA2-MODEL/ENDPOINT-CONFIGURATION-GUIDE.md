@@ -22,7 +22,7 @@ https://{your-resource-name}.openai.azure.com/openai/v1/
 ### Complete Example:
 
 ```
-https://aq-ai-foundry-sweden-central.openai.azure.com/openai/v1/
+https://your-resource-name.openai.azure.com/openai/v1/
 ```
 
 ⚠️ **Important**: Note the trailing slash `/` at the end - this is required!
@@ -34,7 +34,7 @@ https://aq-ai-foundry-sweden-central.openai.azure.com/openai/v1/
 ### ❌ Incorrect Format (Missing `/openai/v1/`)
 
 ```
-https://aq-ai-foundry-sweden-central.openai.azure.com/
+https://your-resource-name.openai.azure.com/
 ```
 
 **Result**: 404 Not Found error
@@ -42,7 +42,7 @@ https://aq-ai-foundry-sweden-central.openai.azure.com/
 ### ❌ Incorrect Format (Missing trailing slash)
 
 ```
-https://aq-ai-foundry-sweden-central.openai.azure.com/openai/v1
+https://your-resource-name.openai.azure.com/openai/v1
 ```
 
 **Result**: May cause routing issues
@@ -50,7 +50,7 @@ https://aq-ai-foundry-sweden-central.openai.azure.com/openai/v1
 ### ✅ Correct Format
 
 ```
-https://aq-ai-foundry-sweden-central.openai.azure.com/openai/v1/
+https://your-resource-name.openai.azure.com/openai/v1/
 ```
 
 ---
