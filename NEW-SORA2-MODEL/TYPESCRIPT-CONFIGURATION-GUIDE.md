@@ -15,7 +15,7 @@ https://{your-resource-name}.openai.azure.com/openai/v1/
 ### Complete Example:
 
 ```typescript
-const endpoint = "https://aq-ai-foundry-sweden-central.openai.azure.com/openai/v1/";
+const endpoint = "https://your-resource-name.openai.azure.com/openai/v1/";
 ```
 
 ⚠️ **Important**: The trailing slash `/` at the end is required!
