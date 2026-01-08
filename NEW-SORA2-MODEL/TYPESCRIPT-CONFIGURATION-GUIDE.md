@@ -27,12 +27,14 @@ const endpoint = "https://your-resource-name.openai.azure.com/openai/v1/";
 ### Install Required Packages
 
 ```bash
-npm install openai dotenv
+npm install openai dotenv sharp
 # or
-yarn add openai dotenv
+yarn add openai dotenv sharp
 # or
-pnpm add openai dotenv
+pnpm add openai dotenv sharp
 ```
+
+**Note**: `sharp` is required for image processing and dimension validation
 
 ### TypeScript Type Definitions
 
@@ -294,6 +296,7 @@ import { client } from './client';
 import { config } from './config';
 import fs from 'fs/promises';
 import path from 'path';
+import sharp from 'sharp';
 import { pollVideoStatus, downloadVideo } from './text-to-video';
 
 interface ImageToVideoOptions {
@@ -302,6 +305,91 @@ interface ImageToVideoOptions {
   size?: '720x1280' | '1280x720' | '1024x1792' | '1792x1024';
   seconds?: '4' | '8' | '12';
   outputFilename?: string;
+  autoResize?: boolean; // Automatically resize image to match video dimensions
+}
+
+/**
+ * Get image dimensions using sharp
+ */
+async function getImageDimensions(imagePath: string): Promise<{ width: number; height: number }> {
+  const metadata = await sharp(imagePath).metadata();
+  return {
+    width: metadata.width || 0,
+    height: metadata.height || 0,
+  };
+}
+
+/**
+ * Validate if image dimensions match the requested video size
+ * 
+ * CRITICAL: SORA 2 requires exact dimension matching!
+ * Error: "400 Inpaint image must match the requested width and height"
+ * means your image dimensions don't match the size parameter
+ */
+function validateImageDimensions(
+  imageWidth: number,
+  imageHeight: number,
+  videoSize: string
+): boolean {
+  const [width, height] = videoSize.split('x').map(Number);
+  return imageWidth === width && imageHeight === height;
+}
+
+/**
+ * Resize image to match SORA 2 video dimensions
+ * Uses smart cropping to maintain aspect ratio
+ */
+async function resizeImageForVideo(
+  inputPath: string,
+  outputPath: string,
+  targetSize: string
+): Promise<string> {
+  const [targetWidth, targetHeight] = targetSize.split('x').map(Number);
+  
+  console.log(`🔧 Resizing image to ${targetWidth}x${targetHeight}...`);
+  
+  const image = sharp(inputPath);
+  const metadata = await image.metadata();
+  
+  const origWidth = metadata.width || 0;
+  const origHeight = metadata.height || 0;
+  const origAspect = origWidth / origHeight;
+  const targetAspect = targetWidth / targetHeight;
+  
+  let resizedImage: sharp.Sharp;
+  
+  if (origAspect > targetAspect) {
+    // Image is wider - crop width
+    const newWidth = Math.round(origHeight * targetAspect);
+    resizedImage = image.extract({
+      left: Math.round((origWidth - newWidth) / 2),
+      top: 0,
+      width: newWidth,
+      height: origHeight,
+    });
+  } else {
+    // Image is taller - crop height
+    const newHeight = Math.round(origWidth / targetAspect);
+    resizedImage = image.extract({
+      left: 0,
+      top: Math.round((origHeight - newHeight) / 2),
+      width: origWidth,
+      height: newHeight,
+    });
+  }
+  
+  // Resize to exact target dimensions
+  await resizedImage
+    .resize(targetWidth, targetHeight, {
+      kernel: sharp.kernel.lanczos3,
+      fit: 'fill',
+    })
+    .toFile(outputPath);
+  
+  console.log(`✅ Image resized from ${origWidth}x${origHeight} to ${targetWidth}x${targetHeight}`);
+  console.log(`   Saved to: ${outputPath}`);
+  
+  return outputPath;
 }
 
 async function generateImageToVideo(
@@ -313,15 +401,49 @@ async function generateImageToVideo(
     size = '1280x720',
     seconds = '8',
     outputFilename = 'output.mp4',
+    autoResize = true, // Default to auto-resize for convenience
   } = options;
 
   console.log('🎨 Starting image-to-video generation...');
   console.log(`   Image: ${imagePath}`);
   console.log(`   Prompt: ${prompt}`);
+  console.log(`   Target size: ${size}`);
 
   try {
-    // Read image file
-    const imageBuffer = await fs.readFile(imagePath);
+    // Check if image exists
+    await fs.access(imagePath);
+    
+    // Get image dimensions
+    const { width, height } = await getImageDimensions(imagePath);
+    console.log(`📐 Image dimensions: ${width}x${height}`);
+    
+    let finalImagePath = imagePath;
+    
+    // Validate dimensions
+    if (!validateImageDimensions(width, height, size)) {
+      console.log(`⚠️  Image dimensions (${width}x${height}) don't match video size (${size})`);
+      
+      if (autoResize) {
+        // Automatically resize the image
+        const parsedPath = path.parse(imagePath);
+        const resizedPath = path.join(
+          parsedPath.dir,
+          `${parsedPath.name}_resized_${size}${parsedPath.ext}`
+        );
+        
+        finalImagePath = await resizeImageForVideo(imagePath, resizedPath, size);
+      } else {
+        throw new Error(
+          `Image dimensions (${width}x${height}) must match video size (${size}). ` +
+          `Set autoResize=true to automatically resize, or manually resize your image.`
+        );
+      }
+    } else {
+      console.log(`✅ Image dimensions match video size`);
+    }
+
+    // Read the final image file
+    const imageBuffer = await fs.readFile(finalImagePath);
     const imageBlob = new Blob([imageBuffer]);
 
     // Create video generation job with image reference
@@ -361,6 +483,7 @@ async function main() {
       size: '1280x720',
       seconds: '8',
       outputFilename: 'image_to_video.mp4',
+      autoResize: true, // Automatically resize if dimensions don't match
     });
 
     console.log('🎉 Image-to-video generation complete!');
@@ -374,7 +497,48 @@ if (require.main === module) {
   main();
 }
 
-export { generateImageToVideo };
+export { generateImageToVideo, getImageDimensions, resizeImageForVideo };
+```
+
+#### Handling the "400 Inpaint image must match" Error
+
+**Problem**: You get this error even when providing an image with the "same" size.
+
+**Root Cause**: SORA 2 requires **EXACT** pixel-perfect dimension matching. Even 1 pixel difference causes this error.
+
+**Solutions**:
+
+1. **Automatic Resizing (Recommended)**:
+```typescript
+await generateImageToVideo({
+  imagePath: './my-image.jpg',
+  prompt: 'Your prompt here',
+  size: '1280x720',
+  autoResize: true, // Will automatically resize to match
+});
+```
+
+2. **Manual Validation**:
+```typescript
+import { getImageDimensions } from './image-to-video';
+
+const dims = await getImageDimensions('./my-image.jpg');
+console.log(`Image is ${dims.width}x${dims.height}`);
+
+// Choose matching video size
+const videoSize = dims.width > dims.height ? '1280x720' : '720x1280';
+```
+
+3. **Pre-resize Images**:
+```typescript
+import { resizeImageForVideo } from './image-to-video';
+
+// Resize image before generation
+await resizeImageForVideo(
+  './original.jpg',
+  './resized.jpg',
+  '1280x720'
+);
 ```
 
 ### 3. Video Management Operations
@@ -471,8 +635,10 @@ export function handleOpenAIError(error: unknown): never {
         console.error('   Problem: Invalid request parameters');
         console.error('   Common causes:');
         console.error('   - seconds parameter must be string: "4", "8", or "12"');
-        console.error('   - Image dimensions must match video size');
+        console.error('   - Image dimensions must EXACTLY match video size (pixel-perfect)');
+        console.error('   - Error "Inpaint image must match" = dimension mismatch');
         console.error('   - Invalid model deployment name');
+        console.error('   Solution: Use autoResize=true in image-to-video generation');
         break;
 
       case 429:
@@ -519,6 +685,72 @@ export async function withRetry<T>(
 
   throw lastError;
 }
+```
+
+---
+
+## WPP Customer Issues - Solutions
+
+### 🔧 Issue 1: "400 Inpaint image must match the requested width and height"
+
+**Reported**: November 10, 2025  
+**Status**: ✅ SOLVED - Solution added to guide
+
+**Problem Description**:
+WPP customer reported getting this error when trying image-to-video generation, even when providing images with matching dimensions.
+
+**Root Cause**:
+SORA 2 requires **EXACT pixel-perfect** dimension matching. An image that appears to be 1280x720 might actually be 1280x719 or 1281x720.
+
+**Solution Implemented**:
+The updated `generateImageToVideo()` function now includes:
+- Automatic dimension validation with `getImageDimensions()`
+- Smart image resizing with `resizeImageForVideo()` using `sharp` library
+- `autoResize` parameter (default: `true`) to automatically handle mismatches
+
+**Code Example for WPP**:
+```typescript
+// Install sharp for image processing
+npm install sharp
+
+// Use the updated function with auto-resize
+import { generateImageToVideo } from './image-to-video';
+
+await generateImageToVideo({
+  imagePath: './your-image.jpg',
+  prompt: 'Your animation prompt here',
+  size: '1280x720',
+  autoResize: true, // ✅ Automatically fixes dimension mismatches
+});
+```
+
+**Verification**:
+```typescript
+// Verify your image dimensions
+import { getImageDimensions } from './image-to-video';
+
+const dims = await getImageDimensions('./your-image.jpg');
+console.log(`Image dimensions: ${dims.width}x${dims.height}`);
+// If not exactly 1280x720, autoResize will fix it
+```
+
+---
+
+### 🔧 Issue 2: "404 Resource not found"
+
+**Reported**: November 6, 2025  
+**Status**: ✅ RESOLVED
+
+**Problem**:
+```typescript
+endpoint: "https://wppai-d-01-swedencentral.openai.azure.com/"
+// Error: 404 Resource not found
+```
+
+**Solution**:
+```typescript
+endpoint: "https://wppai-d-01-swedencentral.openai.azure.com/openai/v1/"
+// Must include /openai/v1/ path
 ```
 
 ---
@@ -602,7 +834,8 @@ main();
   },
   "dependencies": {
     "openai": "^4.0.0",
-    "dotenv": "^16.0.0"
+    "dotenv": "^16.0.0",
+    "sharp": "^0.33.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
